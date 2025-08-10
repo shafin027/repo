@@ -60,46 +60,76 @@ def main():
     st.markdown("""
     <style>
     .main {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
+        background: linear-gradient(to bottom right, #e6f0fa, #f5f7fa);
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     }
     .stButton>button {
-        background-color: #4CAF50;
+        background: linear-gradient(90deg, #4CAF50, #66BB6A);
         color: white;
-        padding: 10px 20px;
-        border-radius: 5px;
+        padding: 12px 24px;
+        border-radius: 8px;
         border: none;
         font-weight: bold;
+        transition: transform 0.2s;
     }
     .stButton>button:hover {
-        background-color: #45a049;
+        background: linear-gradient(90deg, #45a049, #5cb85c);
+        transform: scale(1.05);
     }
     .stSelectbox, .stNumberInput {
         background-color: white;
-        border-radius: 5px;
-        padding: 10px;
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid #d1d9e6;
+        transition: border-color 0.3s;
+    }
+    .stSelectbox:hover, .stNumberInput:hover {
+        border-color: #4CAF50;
     }
     h1, h2, h3 {
         color: #1a3c6e;
-        font-family: 'Arial', sans-serif;
+        font-family: 'Segoe UI', sans-serif;
+        font-weight: 600;
     }
     .stSuccess {
         background-color: #e6f3e6;
         border: 1px solid #4CAF50;
-        border-radius: 5px;
-        padding: 10px;
+        border-radius: 8px;
+        padding: 15px;
+        font-size: 1.1em;
     }
     .stDataFrame {
         background-color: white;
-        border-radius: 5px;
-        padding: 10px;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    .stDataFrame table {
+        border-collapse: separate;
+        border-spacing: 0;
+        width: 100%;
+    }
+    .stDataFrame th {
+        background-color: #4CAF50;
+        color: white;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+    }
+    .stDataFrame td {
+        padding: 12px;
+        border-bottom: 1px solid #e6e6e6;
+    }
+    .stDataFrame tr:hover {
+        background-color: #f5f7fa;
     }
     </style>
     """, unsafe_allow_html=True)
 
     st.title("✈️ Flight Price Predictor")
-    st.markdown("Select your flight details to predict the total fare in BDT with our intuitive and user-friendly interface.")
+    st.markdown("Plan your journey with ease! Select your flight details to predict the total fare in BDT.")
 
     # Load and preprocess data
     X, y, label_encoders, df, source_map, destination_map = load_and_preprocess_data()
@@ -175,7 +205,7 @@ def main():
                         'Stopovers', 'Aircraft Type', 'Class', 'Booking Source', 
                         'Seasonality', 'Days Before Departure', 'Total Fare (BDT)'
                     ]
-                    st.dataframe(display_df[display_columns], use_container_width=True)
+                    st.dataframe(display_df[display_columns], use_container_width=True, hide_index=True)
                 else:
                     st.markdown("No cheaper flights found for this route within your budget.")
 
