@@ -1,155 +1,134 @@
-# app.py - Fixed Flight Price Predictor
-import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
-import os
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+import streamlit as st
+import uuid
 
-# -------------------------------
-# Configuration
-# -------------------------------
-DATA_FILE = 'cleaned_flight_data.csv'  # Must run fix_data.py first!
-MODEL_DIR = 'models'
-os.makedirs(MODEL_DIR, exist_ok=True)
-
-model_path = os.path.join(MODEL_DIR, 'flight_model.pkl')
-encoder_path = os.path.join(MODEL_DIR, 'encoders.pkl')
-duration_path = os.path.join(MODEL_DIR, 'durations.pkl')
-price_trend_path = os.path.join(MODEL_DIR, 'price_trends.pkl')
-
-# -------------------------------
-# Load & Clean Data
-# -------------------------------
-@st.cache_data
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        st.error(f"❌ File '{DATA_FILE}' not found. Please run 'fix_data.py' first.")
-        st.stop()
-
-    df = pd.read_csv(DATA_FILE)
-
-    # Convert dates
-    df['Departure'] = pd.to_datetime(df['Departure'], errors='coerce')
-    df['Arrival'] = pd.to_datetime(df['Arrival'], errors='coerce')
-
-    # Extract time features
-    df['DepartureDay'] = df['Departure'].dt.day
-    df['DepartureMonth'] = df['Departure'].dt.month
-    df['DepartureHour'] = df['Departure'].dt.hour
-    df['Weekday'] = df['Departure'].dt.weekday
-
-    # Clean TotalPrice
-    df['TotalPrice'] = pd.to_numeric(df['TotalPrice'], errors='coerce')
-    df.dropna(subset=['TotalPrice'], inplace=True)
-
-    # Drop unnecessary
-    df.drop(['SourceName', 'DestinationName', 'FlightID', 'BasePrice', 'Tax'], axis=1, inplace=True)
-
-    return df
-
-# -------------------------------
-# Train or Load Model
-# -------------------------------
-if os.path.exists(model_path):
-    model = joblib.load(model_path)
-    label_encoders = joblib.load(encoder_path)
-    route_durations = joblib.load(duration_path)
-    route_avg_prices = joblib.load(price_trend_path)
-    st.sidebar.success("✅ Model loaded!")
-else:
-    st.sidebar.info("🔧 Training model...")
-
-    df = load_data()
-
-    # Route-based duration
-    route_durations = df.groupby(['Source', 'Destination'])['Duration'].mean().to_dict()
-    route_avg_prices = df.groupby(['Source', 'Destination'])['TotalPrice'].mean().round(2).to_dict()
-
-    # Encode categorical columns
-    cat_cols = ['Airline', 'Source', 'Destination', 'Stops', 'Aircraft', 'Class', 'BookingMethod', 'Season']
+# Function to load and preprocess data
+def load_and_preprocess_data():
+    # Load the dataset
+    df = pd.read_csv('Flight_Price_Dataset_of_Bangladesh.csv')
+    
+    # Select relevant features
+    features = ['Airline', 'Source', 'Destination', 'Duration (hrs)', 'Stopovers', 
+                'Aircraft Type', 'Class', 'Booking Source', 'Seasonality', 'Days Before Departure']
+    target = 'Total Fare (BDT)'
+    
+    # Handle categorical variables
     label_encoders = {}
-    df_encoded = df.copy()
-    for col in cat_cols:
+    for col in ['Airline', 'Source', 'Destination', 'Stopovers', 'Aircraft Type', 
+                'Class', 'Booking Source', 'Seasonality']:
         le = LabelEncoder()
-        df_encoded[col] = le.fit_transform(df_encoded[col].astype(str))
+        df[col] = le.fit_transform(df[col].astype(str))
         label_encoders[col] = le
+    
+    X = df[features]
+    y = df[target]
+    
+    return X, y, label_encoders, df
 
-    # Features
-    feature_cols = ['Airline', 'Source', 'Destination', 'Stops', 'Aircraft', 'Class',
-                    'BookingMethod', 'Season', 'DepartureDay', 'DepartureMonth',
-                    'DepartureHour', 'Weekday', 'Duration']
-    X = df_encoded[feature_cols]
-    y = df_encoded['TotalPrice']
-
-    # Train
+# Function to train the model
+def train_model(X, y):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X, y)
+    model.fit(X_train, y_train)
+    return model
 
-    # Save
-    joblib.dump(model, model_path)
-    joblib.dump(label_encoders, encoder_path)
-    joblib.dump(route_durations, duration_path)
-    joblib.dump(route_avg_prices, price_trend_path)
-
-    st.sidebar.success("✅ Model trained and saved!")
-
-# -------------------------------
-# Helper
-# -------------------------------
-def get_categories(col):
-    return label_encoders[col].classes_
-
-# -------------------------------
-# UI
-# -------------------------------
-st.title("✈️ Bangladesh Flight Price Predictor")
-
-airline = st.selectbox("Airline", get_categories('Airline'))
-source = st.selectbox("Source", get_categories('Source'))
-destination = st.selectbox("Destination", get_categories('Destination'))
-
-if source == destination:
-    st.error("❌ Source and destination cannot be the same.")
-else:
-    default_duration = route_durations.get((source, destination), 1.0)
-    duration = st.number_input("Duration (hours)", value=round(default_duration, 2))
-
-    stops = st.selectbox("Stops", get_categories('Stops'))
-    aircraft = st.selectbox("Aircraft", get_categories('Aircraft'))
-    flight_class = st.selectbox("Class", get_categories('Class'))
-    booking_method = st.selectbox("Booking Method", get_categories('BookingMethod'))
-    season = st.selectbox("Season", get_categories('Season'))
-
-    date = st.date_input("Departure Date")
-    time = st.time_input("Departure Time")
-
-    departure_day = date.day
-    departure_month = date.month
-    departure_hour = time.hour
-    weekday = date.weekday()
-
-    if st.button("🔍 Predict Price"):
+# Function to predict fare
+def predict_fare(model, label_encoders, feature_columns, input_data):
+    input_df = pd.DataFrame([input_data], columns=feature_columns)
+    
+    # Encode categorical inputs
+    for col in ['Airline', 'Source', 'Destination', 'Stopovers', 'Aircraft Type', 
+                'Class', 'Booking Source', 'Seasonality']:
         try:
-            input_df = pd.DataFrame([[
-                airline, source, destination, stops, aircraft, flight_class,
-                booking_method, season, departure_day, departure_month,
-                departure_hour, weekday, duration
-            ]], columns=[
-                'Airline', 'Source', 'Destination', 'Stops', 'Aircraft', 'Class',
-                'BookingMethod', 'Season', 'DepartureDay', 'DepartureMonth',
-                'DepartureHour', 'Weekday', 'Duration'
-            ])
+            input_df[col] = label_encoders[col].transform([input_data[col]])[0]
+        except ValueError:
+            st.error(f"Invalid value for {col}. Please select a valid option from the dropdown.")
+            return None
+    
+    return model.predict(input_df)[0]
 
-            for col in ['Airline', 'Source', 'Destination', 'Stops', 'Aircraft', 'Class', 'BookingMethod', 'Season']:
-                input_df[col] = label_encoders[col].transform([input_df[col].iloc[0]])
+# Streamlit app
+def main():
+    st.title("Flight Price Prediction App")
+    st.write("Select flight details to predict the total fare in BDT.")
 
-            price = model.predict(input_df)[0]
-            st.success(f"💰 Predicted Price: BDT {price:,.2f}")
+    # Load and preprocess data
+    X, y, label_encoders, df = load_and_preprocess_data()
+    
+    # Train the model
+    model = train_model(X, y)
+    
+    # Create input form
+    with st.form("flight_form"):
+        st.subheader("Flight Details")
+        
+        # Dropdowns for categorical features
+        airline = st.selectbox("Airline", options=label_encoders['Airline'].classes_)
+        source = st.selectbox("Source Airport", options=label_encoders['Source'].classes_)
+        destination = st.selectbox("Destination Airport", options=label_encoders['Destination'].classes_)
+        stopovers = st.selectbox("Stopovers", options=label_encoders['Stopovers'].classes_)
+        aircraft_type = st.selectbox("Aircraft Type", options=label_encoders['Aircraft Type'].classes_)
+        class_type = st.selectbox("Class", options=label_encoders['Class'].classes_)
+        booking_source = st.selectbox("Booking Source", options=label_encoders['Booking Source'].classes_)
+        seasonality = st.selectbox("Seasonality", options=label_encoders['Seasonality'].classes_)
+        
+        # Numeric inputs
+        duration = st.number_input("Duration (hours)", min_value=0.0, max_value=24.0, value=1.0, step=0.1)
+        days_before = st.number_input("Days Before Departure", min_value=0, max_value=365, value=30, step=1)
+        budget = st.number_input("Your Budget (BDT)", min_value=0.0, value=30000.0, step=1000.0)
+        
+        # Submit button
+        submitted = st.form_submit_button("Predict Fare")
+    
+    if submitted:
+        # Prepare input data
+        input_data = {
+            'Airline': airline,
+            'Source': source,
+            'Destination': destination,
+            'Duration (hrs)': duration,
+            'Stopovers': stopovers,
+            'Aircraft Type': aircraft_type,
+            'Class': class_type,
+            'Booking Source': booking_source,
+            'Seasonality': seasonality,
+            'Days Before Departure': days_before
+        }
+        
+        # Predict fare
+        predicted_fare = predict_fare(model, label_encoders, X.columns, input_data)
+        
+        if predicted_fare is not None:
+            st.success(f"**Predicted Total Fare: {predicted_fare:.2f} BDT**")
+            
+            # Decision-making based on budget
+            if predicted_fare <= budget:
+                st.write("✅ The predicted fare is within your budget. Consider booking this flight!")
+            else:
+                st.write("⚠️ The predicted fare exceeds your budget. Explore cheaper alternatives.")
+                
+                # Suggest cheaper alternatives
+                st.subheader("Cheaper Alternatives")
+                # Filter flights with similar source/destination but lower fare
+                similar_flights = df[
+                    (df['Source'] == label_encoders['Source'].transform([source])[0]) &
+                    (df['Destination'] == label_encoders['Destination'].transform([destination])[0]) &
+                    (df['Total Fare (BDT)'] <= budget)
+                ]
+                
+                if not similar_flights.empty:
+                    st.write("Here are some flights within your budget:")
+                    for _, row in similar_flights.head(5).iterrows():
+                        st.write(f"- Airline: {label_encoders['Airline'].inverse_transform([int(row['Airline'])])[0]}, "
+                                f"Class: {label_encoders['Class'].inverse_transform([int(row['Class'])])[0]}, "
+                                f"Stopovers: {label_encoders['Stopovers'].inverse_transform([int(row['Stopovers'])])[0]}, "
+                                f"Fare: {row['Total Fare (BDT)']:.2f} BDT")
+                else:
+                    st.write("No cheaper flights found for this route within your budget.")
 
-            avg_price = route_avg_prices.get((source, destination), "N/A")
-            if avg_price != "N/A":
-                st.info(f"📊 Average historical price for {source} → {destination}: BDT {avg_price:,.2f}")
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
+if __name__ == "__main__":
+    main()
