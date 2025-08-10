@@ -11,6 +11,11 @@ def load_and_preprocess_data():
     # Load the dataset
     df = pd.read_csv('Flight_Price_Dataset_of_Bangladesh.csv')
     
+    # Create airport code to name mappings
+    airport_mappings = df[['Source', 'Source Name', 'Destination', 'Destination Name']].drop_duplicates()
+    source_map = dict(zip(airport_mappings['Source Name'], airport_mappings['Source']))
+    destination_map = dict(zip(airport_mappings['Destination Name'], airport_mappings['Destination']))
+    
     # Select relevant features
     features = ['Airline', 'Source', 'Destination', 'Duration (hrs)', 'Stopovers', 
                 'Aircraft Type', 'Class', 'Booking Source', 'Seasonality', 'Days Before Departure']
@@ -27,7 +32,7 @@ def load_and_preprocess_data():
     X = df[features]
     y = df[target]
     
-    return X, y, label_encoders, df
+    return X, y, label_encoders, df, source_map, destination_map
 
 # Function to train the model
 def train_model(X, y):
@@ -57,7 +62,7 @@ def main():
     st.write("Select flight details to predict the total fare in BDT.")
 
     # Load and preprocess data
-    X, y, label_encoders, df = load_and_preprocess_data()
+    X, y, label_encoders, df, source_map, destination_map = load_and_preprocess_data()
     
     # Train the model
     model = train_model(X, y)
@@ -68,8 +73,14 @@ def main():
         
         # Dropdowns for categorical features
         airline = st.selectbox("Airline", options=label_encoders['Airline'].classes_)
-        source = st.selectbox("Source Airport", options=label_encoders['Source'].classes_)
-        destination = st.selectbox("Destination Airport", options=label_encoders['Destination'].classes_)
+        
+        # Display full airport names in dropdowns
+        source_name = st.selectbox("Source Airport", options=sorted(source_map.keys()))
+        source_code = source_map[source_name]
+        
+        destination_name = st.selectbox("Destination Airport", options=sorted(destination_map.keys()))
+        destination_code = destination_map[destination_name]
+        
         stopovers = st.selectbox("Stopovers", options=label_encoders['Stopovers'].classes_)
         aircraft_type = st.selectbox("Aircraft Type", options=label_encoders['Aircraft Type'].classes_)
         class_type = st.selectbox("Class", options=label_encoders['Class'].classes_)
@@ -85,11 +96,11 @@ def main():
         submitted = st.form_submit_button("Predict Fare")
     
     if submitted:
-        # Prepare input data
+        # Prepare input data with airport codes
         input_data = {
             'Airline': airline,
-            'Source': source,
-            'Destination': destination,
+            'Source': source_code,
+            'Destination': destination_code,
             'Duration (hrs)': duration,
             'Stopovers': stopovers,
             'Aircraft Type': aircraft_type,
@@ -115,8 +126,8 @@ def main():
                 st.subheader("Cheaper Alternatives")
                 # Filter flights with similar source/destination but lower fare
                 similar_flights = df[
-                    (df['Source'] == label_encoders['Source'].transform([source])[0]) &
-                    (df['Destination'] == label_encoders['Destination'].transform([destination])[0]) &
+                    (df['Source'] == label_encoders['Source'].transform([source_code])[0]) &
+                    (df['Destination'] == label_encoders['Destination'].transform([destination_code])[0]) &
                     (df['Total Fare (BDT)'] <= budget)
                 ]
                 
