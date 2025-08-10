@@ -129,15 +129,23 @@ def main():
                     (df['Source'] == label_encoders['Source'].transform([source_code])[0]) &
                     (df['Destination'] == label_encoders['Destination'].transform([destination_code])[0]) &
                     (df['Total Fare (BDT)'] <= budget)
-                ]
+                ].sort_values('Total Fare (BDT)')
                 
                 if not similar_flights.empty:
                     st.write("Here are some flights within your budget:")
-                    for _, row in similar_flights.head(5).iterrows():
-                        st.write(f"- Airline: {label_encoders['Airline'].inverse_transform([int(row['Airline'])])[0]}, "
-                                f"Class: {label_encoders['Class'].inverse_transform([int(row['Class'])])[0]}, "
-                                f"Stopovers: {label_encoders['Stopovers'].inverse_transform([int(row['Stopovers'])])[0]}, "
-                                f"Fare: {row['Total Fare (BDT)']:.2f} BDT")
+                    # Create a copy for display and inverse transform categorical columns
+                    display_df = similar_flights.copy()
+                    categorical_cols = ['Airline', 'Stopovers', 'Aircraft Type', 'Class', 'Booking Source', 'Seasonality']
+                    for col in categorical_cols:
+                        display_df[col] = label_encoders[col].inverse_transform(display_df[col].astype(int))
+                    
+                    # Select relevant columns for display
+                    display_columns = [
+                        'Airline', 'Source Name', 'Destination Name', 'Departure Date & Time', 'Arrival Date & Time',
+                        'Duration (hrs)', 'Stopovers', 'Aircraft Type', 'Class', 'Booking Source', 
+                        'Seasonality', 'Days Before Departure', 'Total Fare (BDT)'
+                    ]
+                    st.dataframe(display_df[display_columns])
                 else:
                     st.write("No cheaper flights found for this route within your budget.")
 
