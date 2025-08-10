@@ -1,4 +1,4 @@
-# app.py - Enhanced Flight Price Predictor for Bangladesh
+# app.py - Bangladesh Flight Price Predictor
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,18 +9,28 @@ from sklearn.preprocessing import LabelEncoder
 from datetime import datetime
 
 # -------------------------------
-# 1. Load or Train Model & Save with Joblib
+# Configuration
 # -------------------------------
-MODEL_DIR = "models"
+DATA_FILE = 'Flight_Price_Dataset_of_Bangladesh.csv'
+MODEL_DIR = 'models'
 os.makedirs(MODEL_DIR, exist_ok=True)
-model_path = os.path.join(MODEL_DIR, "flight_price_model.pkl")
-encoder_path = os.path.join(MODEL_DIR, "label_encoders.pkl")
-duration_dict_path = os.path.join(MODEL_DIR, "route_durations.pkl")
-price_trend_path = os.path.join(MODEL_DIR, "route_avg_prices.pkl")
 
+model_path = os.path.join(MODEL_DIR, 'flight_price_model.pkl')
+encoder_path = os.path.join(MODEL_DIR, 'label_encoders.pkl')
+duration_dict_path = os.path.join(MODEL_DIR, 'route_durations.pkl')
+price_trend_path = os.path.join(MODEL_DIR, 'route_avg_prices.pkl')
+
+# -------------------------------
+# Load or Train Model
+# -------------------------------
 @st.cache_data
-def load_or_train_model():
-    df_raw = pd.read_csv('Flight_Price_Dataset_of_Bangladesh.csv', header=None)
+def load_data():
+    try:
+        df_raw = pd.read_csv(DATA_FILE, header=None)
+    except FileNotFoundError:
+        st.error(f"❌ Dataset '{DATA_FILE}' not found. Please make sure it's in the same folder.")
+        st.stop()
+
     columns = [
         'Airline', 'Source', 'SourceName', 'Destination', 'DestinationName',
         'Departure', 'Arrival', 'Duration', 'Stops', 'Aircraft', 'Class',
@@ -28,31 +38,38 @@ def load_or_train_model():
     ]
     df_raw.columns = columns
 
-    # Convert datetime
+    # Convert to datetime
     df_raw['Departure'] = pd.to_datetime(df_raw['Departure'])
     df_raw['Arrival'] = pd.to_datetime(df_raw['Arrival'])
 
-    # Extract features
+    # Extract time features
     df_raw['DepartureDay'] = df_raw['Departure'].dt.day
     df_raw['DepartureMonth'] = df_raw['Departure'].dt.month
     df_raw['DepartureHour'] = df_raw['Departure'].dt.hour
     df_raw['Weekday'] = df_raw['Departure'].dt.weekday
 
-    # Clean
+    # Clean TotalPrice
     df_raw['TotalPrice'] = pd.to_numeric(df_raw['TotalPrice'], errors='coerce')
-    df = df_raw.dropna().copy()
 
-    # Drop unnecessary
+    # Drop unnecessary columns
+    df = df_raw.dropna().copy()
     df.drop(['SourceName', 'DestinationName', 'Departure', 'Arrival', 'FlightID', 'BasePrice', 'Tax'], axis=1, inplace=True)
 
-    # -------------------------------
-    # Create Route-to-Duration Dictionary
-    # -------------------------------
-    route_durations = df.groupby(['Source', 'Destination'])['Duration'].mean().to_dict()
+    return df
 
-    # -------------------------------
-    # Create Price Trends: Avg Price by Route
-    # -------------------------------
+# Try to load pre-saved model and data
+if os.path.exists(model_path):
+    model = joblib.load(model_path)
+    label_encoders = joblib.load(encoder_path)
+    route_durations = joblib.load(duration_dict_path)
+    route_avg_prices = joblib.load(price_trend_path)
+    st.session_state['model_loaded'] = True
+else:
+    # Train and save everything
+    df = load_data()
+
+    # Create route-to-duration and route-to-price mappings
+    route_durations = df.groupby(['Source', 'Destination'])['Duration'].mean().to_dict()
     route_avg_prices = df.groupby(['Source', 'Destination'])['TotalPrice'].mean().round(2).to_dict()
 
     # Encode categorical variables
@@ -63,7 +80,7 @@ def load_or_train_model():
         df[col] = le.fit_transform(df[col].astype(str))
         label_encoders[col] = le
 
-    # Features
+    # Features and target
     X = df.drop('TotalPrice', axis=1)
     y = df['TotalPrice']
 
@@ -77,30 +94,21 @@ def load_or_train_model():
     joblib.dump(route_durations, duration_dict_path)
     joblib.dump(route_avg_prices, price_trend_path)
 
-    return model, label_encoders, route_durations, route_avg_prices
-
-# Try to load pre-trained model, otherwise train and save
-if os.path.exists(model_path):
-    model = joblib.load(model_path)
-    label_encoders = joblib.load(encoder_path)
-    route_durations = joblib.load(duration_dict_path)
-    route_avg_prices = joblib.load(price_trend_path)
-    st.session_state['model_loaded'] = True
-else:
-    model, label_encoders, route_durations, route_avg_prices = load_or_train_model()
     st.success("✅ Model trained and saved for future use!")
 
 # -------------------------------
-# 2. Streamlit UI
+# Helper: Get categories for dropdowns
 # -------------------------------
-st.title("✈️ Bangladesh Flight Price Predictor")
-st.markdown("_Predict prices & compare routes intelligently._")
-
-# Get original categories
 def get_categories(col):
     return label_encoders[col].classes_
 
-# Input Form
+# -------------------------------
+# Streamlit UI
+# -------------------------------
+st.title("✈️ Bangladesh Flight Price Predictor")
+st.markdown("_Predict ticket prices & compare routes intelligently._")
+
+# Sidebar Inputs
 st.sidebar.header("🛫 Enter Flight Details")
 
 airline = st.sidebar.selectbox("Airline", get_categories('Airline'))
@@ -121,7 +129,7 @@ flight_class = st.sidebar.selectbox("Class", get_categories('Class'))
 booking_method = st.sidebar.selectbox("Booking Method", get_categories('BookingMethod'))
 season = st.sidebar.selectbox("Season", get_categories('Season'))
 
-# Date & Time
+# Date and Time
 date = st.sidebar.date_input("Departure Date", value=datetime.today())
 time = st.sidebar.time_input("Departure Time", value=datetime.now().time())
 
@@ -143,11 +151,12 @@ input_data = pd.DataFrame([[
 ])
 
 # Encode inputs
-for col in ['Airline', 'Source', 'Destination', 'Stops', 'Aircraft', 'Class', 'BookingMethod', 'Season']:
-    if input_data[col].iloc[0] not in label_encoders[col].classes_:
-        st.error(f"⚠️ Unknown value: {col} = {input_data[col].iloc[0]}")
-        st.stop()
-    input_data[col] = label_encoders[col].transform([input_data[col].iloc[0]])
+try:
+    for col in ['Airline', 'Source', 'Destination', 'Stops', 'Aircraft', 'Class', 'BookingMethod', 'Season']:
+        input_data[col] = label_encoders[col].transform([input_data[col].iloc[0]])
+except ValueError as e:
+    st.error(f"⚠️ Unknown category encountered: {e}")
+    st.stop()
 
 # Predict Button
 if st.sidebar.button("🔍 Predict Price"):
@@ -155,10 +164,10 @@ if st.sidebar.button("🔍 Predict Price"):
         predicted_price = model.predict(input_data)[0]
         st.success(f"💰 **Predicted Price: BDT {predicted_price:,.2f}**")
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"❌ Prediction failed: {e}")
 
 # -------------------------------
-# 3. Show Price Trend for Route
+# Price Trend Section
 # -------------------------------
 st.subheader("📊 Historical Price Trend")
 route_key = (source, destination)
@@ -168,7 +177,7 @@ if route_key in route_avg_prices:
 else:
     st.info("No historical data available for this route.")
 
-# Optional: Show feature importance
+# Feature Importance
 if st.checkbox("📈 Show Feature Importance"):
     importance_df = pd.DataFrame({
         'Feature': input_data.columns,
